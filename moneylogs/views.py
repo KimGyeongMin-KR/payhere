@@ -1,9 +1,10 @@
 from django.shortcuts import render
+from django.db import transaction
 from django.db.models import Q
 from .models import MoneyDayLog, MoneyDetailLog
 from .serializers import MoneyDetailLogSerializer, MoneyDayLogSerializer, MoneyMonthSerializer
 
-from rest_framework import permissions
+from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
@@ -87,3 +88,72 @@ class MoneyLogModelViewSet(ModelViewSet):
         day_log, _ = MoneyDayLog.objects.get_or_create(user=user, date=date)
 
         serializer.save(user=user, day_log=day_log)
+
+    def perform_update(self, serializer):
+        """
+        되돌렸던 수입/지출의 값에 새로 들어온 금액을 업데이트 해줍니다.
+        """
+        with transaction.atomic():
+            instance = serializer.save()
+
+            money_type = instance.money_type
+            is_expense = True if money_type == '0' else False
+
+            if is_expense:
+                instance.day_log.expense += instance.money
+            else:
+                instance.day_log.income += instance.money
+
+            instance.day_log.save()
+    
+    def update(self, request, *args, **kwargs):
+        """
+        put request 요청에서 is_delete 값의 포함 여부에 따라
+        soft_delete와 partial_update로 나뉩니다.(soft-delete 우선 순위)
+        soft-delete : is_delete값이 True라면 삭제이고 False라면 복원입니다.
+                    그에 따라 일별 총 수입/지출의 값을 바꿔줍니다.
+        update : 이전 상세 기록의 수입/지출을 참조하여 일별 수입/지출을 되돌린 후 업데이트 된 값으로 대체합니다.
+                    이후 상세 기록의 값을 업데이트 해줍니다.
+        """
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+
+        money_type = instance.money_type
+        is_expense = True if money_type == '0' else False
+        is_delete = serializer.validated_data.get('is_delete', '')
+
+        if is_delete != '' and instance.is_delete != is_delete:
+            if is_delete:
+                message = "휴지통 이동"
+                if is_expense:
+                    instance.day_log.expense -= instance.money
+                else:
+                    instance.day_log.income -= instance.money
+            else:
+                message = "복원 완료"
+                if is_expense:
+                    instance.day_log.expense += instance.money
+                else:
+                    instance.day_log.income += instance.money
+
+            instance.is_delete = is_delete
+
+            with transaction.atomic():
+                instance.save()
+                instance.day_log.save()
+
+            return Response({'message' : message}, status=status.HTTP_200_OK)
+        
+        if is_expense:
+            instance.day_log.expense -= instance.money
+        else:
+            instance.day_log.income -= instance.money
+
+        self.perform_update(serializer)
+
+        if getattr(instance, '_prefetched_objects_cache', None):
+            instance._prefetched_objects_cache = {}
+
+        return Response(serializer.data)
