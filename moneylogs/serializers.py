@@ -13,15 +13,19 @@ class MoneyDayLogSerializer(serializers.ModelSerializer):
 
 class MoneyDetailLogSerializer(serializers.ModelSerializer):
 
-    description = serializers.SerializerMethodField()
+    # description = serializers.SerializerMethodField()
+    date = serializers.SerializerMethodField()
 
-    def get_description(self, obj):
-        action = self.context["action"]
-        if action == 'list':
-            return obj.short_description
-        elif action == 'create':
-            return self.context["request"].data.get('description', '')
-        return obj.description
+    # def get_description(self, obj):
+    #     action = self.context["action"]
+    #     if action == 'list':
+    #         return obj.short_description
+    #     elif action in ['create', 'partial_update']:
+    #         return self.context["request"].data.get('description', '')
+    #     return obj.description
+    
+    def get_date(self, obj):
+        return obj.day_log.date
 
     class Meta:
         model = MoneyDetailLog
