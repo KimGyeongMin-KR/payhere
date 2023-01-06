@@ -36,3 +36,11 @@ class MoneyDetailLogSerializer(serializers.ModelSerializer):
 class MoneyMonthSerializer(serializers.Serializer):
     money_day_logs = MoneyDayLogSerializer(many=True)
     money_detail_logs = MoneyDetailLogSerializer(many=True)
+
+
+class MoneyCategorySerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = MoneyCategory
+        fields = "__all__"
+        read_only_fields = ['user',]

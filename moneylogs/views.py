@@ -3,8 +3,8 @@ from django.shortcuts import render, get_object_or_404
 from django.db import transaction
 from django.db.models import Q, F
 # project
-from .models import MoneyDayLog, MoneyDetailLog
-from .serializers import MoneyDetailLogSerializer, MoneyDayLogSerializer, MoneyMonthSerializer
+from .models import MoneyCategory, MoneyDayLog, MoneyDetailLog
+from .serializers import MoneyCategorySerializer, MoneyDetailLogSerializer, MoneyDayLogSerializer, MoneyMonthSerializer
 from payhere.utils import make_dict_to_url, make_url_to_dict
 # drf
 from rest_framework import permissions, status
@@ -174,6 +174,8 @@ class MoneyLogModelViewSet(ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def make_link(self, request, pk=None):
+        """금전 로그 공유 url설정 메서드
+        """
         share_limit = datetime.now() + relativedelta(hours=24)
         instance = self.get_object()
         instance.share_limit = share_limit
@@ -182,10 +184,46 @@ class MoneyLogModelViewSet(ModelViewSet):
 
     @action(detail=True, methods=['get'])
     def enter_link(self, request, pk=None):
+        """공유된 로그의 정보 제공 메서드
+        """
         instance = get_object_or_404(MoneyDetailLog, pk=pk, share_limit__gte=datetime.now())
         serializer = MoneyDetailLogSerializer(instance)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class CategoryModelViewSet(ModelViewSet):
-    pass
+    serializer_class = MoneyCategorySerializer
+    permission_classes = [permissions.IsAuthenticated,]
+
+    def get_queryset(self):
+        """base가 되는 queryset
+
+        현재 로그인한 유저의 MoneyCategory를 가져옵니다.
+        """
+        user_id = self.request.user.id
+        return MoneyCategory.objects.filter(user_id=user_id)
+    
+    def create(self, request, *args, **kwargs):
+        """
+        카테고리 생성 메서드 (중복 방지)
+        """
+        name = request.data.get('name', '')
+        user = self.request.user
+        if MoneyCategory.objects.filter(user=user, name=name).exists():
+            return Response({"message" : "이미 존재하는 카테고리입니다."},status=status.HTTP_409_CONFLICT)
+        return super().create(request, *args, **kwargs)
+    
+    def perform_create(self, serializer):
+        user = self.request.user
+        serializer.save(user=user)
+
+    def destroy(self, request, *args, **kwargs):
+        """
+        해당 카테고리를 참조하는 MoneyDetailLog들의 카테고리를 없애고
+        카테고리를 지웁니다.
+        """
+        instance = self.get_object()
+        instance.detail_logs.update(category=None)
+        self.perform_destroy(instance)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+        
