@@ -94,16 +94,8 @@ class MoneyLogModelViewSet(ModelViewSet):
         with transaction.atomic():
             day_log, _ = MoneyDayLog.objects.get_or_create(user=user, date=date)
             instance = serializer.save(user=user, day_log=day_log)
-
-            money_type = instance.money_type
-            is_expense = True if money_type == '0' else False
-
-            if is_expense:
-                day_log.expense += instance.money
-            else:
-                day_log.income += instance.money
-
-            day_log.save()
+            self.add_income_expense(instance)
+            instance.day_log.save()
 
     def perform_update(self, serializer):
         """
@@ -111,15 +103,7 @@ class MoneyLogModelViewSet(ModelViewSet):
         """
         with transaction.atomic():
             instance = serializer.save()
-
-            money_type = instance.money_type
-            is_expense = True if money_type == '0' else False
-
-            if is_expense:
-                instance.day_log.expense += instance.money
-            else:
-                instance.day_log.income += instance.money
-
+            self.add_income_expense(instance)
             instance.day_log.save()
     
     def update(self, request, *args, **kwargs):
@@ -135,42 +119,42 @@ class MoneyLogModelViewSet(ModelViewSet):
         instance = self.get_object()
         serializer = self.get_serializer(instance, data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
-
-        money_type = instance.money_type
-        is_expense = True if money_type == '0' else False
         is_delete = serializer.validated_data.get('is_delete', '')
 
         if is_delete != '' and instance.is_delete != is_delete:
             if is_delete:
-                message = "휴지통 이동"
-                if is_expense:
-                    instance.day_log.expense -= instance.money
-                else:
-                    instance.day_log.income -= instance.money
+                data = '휴지통 이동'
+                self.sub_income_expense(instance)
             else:
-                message = "복원 완료"
-                if is_expense:
-                    instance.day_log.expense += instance.money
-                else:
-                    instance.day_log.income += instance.money
-
+                data = MoneyDetailLogSerializer(instance).data
+                self.add_income_expense(instance)
             instance.is_delete = is_delete
 
             with transaction.atomic():
                 instance.save()
                 instance.day_log.save()
-            return Response({'message' : message}, status=status.HTTP_200_OK)
+            return Response(data, status=status.HTTP_200_OK)
         
-        if is_expense:
-            instance.day_log.expense -= instance.money
-        else:
-            instance.day_log.income -= instance.money
 
+        self.sub_income_expense(instance) # 추가하기 위한 복원
         self.perform_update(serializer)
 
         if getattr(instance, '_prefetched_objects_cache', None):
             instance._prefetched_objects_cache = {}
         return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def copy_log(self, request, pk=None):
+        """로그를 복사하는 메서드
+        """
+        instance = self.get_object()
+        instance.pk = None
+        self.add_income_expense(instance)
+
+        with transaction.atomic():
+            instance.save()
+            instance.day_log.save()
+        return Response(status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'])
     def make_link(self, request, pk=None):
@@ -189,6 +173,24 @@ class MoneyLogModelViewSet(ModelViewSet):
         instance = get_object_or_404(MoneyDetailLog, pk=pk, share_limit__gte=datetime.now())
         serializer = MoneyDetailLogSerializer(instance)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def add_income_expense(self, instance):
+        money_type = instance.money_type
+        is_expense = True if money_type == '0' else False
+
+        if is_expense:
+            instance.day_log.expense += instance.money
+        else:
+            instance.day_log.income += instance.money
+
+    def sub_income_expense(self, instance):
+        money_type = instance.money_type
+        is_expense = True if money_type == '0' else False
+
+        if is_expense:
+            instance.day_log.expense -= instance.money
+        else:
+            instance.day_log.income -= instance.money
 
 
 class CategoryModelViewSet(ModelViewSet):

@@ -14,6 +14,10 @@ urlpatterns = [
             'delete' : 'destroy',
         })
     ),
+    path('<int:pk>/copy/', MoneyLogModelViewSet.as_view({
+            'post' : 'copy_log',
+        })
+    ),
     # share url
     path('<int:pk>/share/', MoneyLogModelViewSet.as_view({
             'get' : 'enter_link',
