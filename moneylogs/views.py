@@ -1,6 +1,6 @@
 from django.shortcuts import render
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, F
 from .models import MoneyDayLog, MoneyDetailLog
 from .serializers import MoneyDetailLogSerializer, MoneyDayLogSerializer, MoneyMonthSerializer
 
@@ -30,6 +30,7 @@ class MoneyLogModelViewSet(ModelViewSet):
 
     def get_queryset(self):
         """base가 되는 queryset
+
         현재 로그인한 유저의 MoneyDetailLog를 가져옵니다.
         """
         user_id = self.request.user.id
@@ -54,6 +55,7 @@ class MoneyLogModelViewSet(ModelViewSet):
 
     def list(self, request, *args, **kwargs):
         """월별로 데이터를 제공합니다. 데이터를 제공합니다.
+
         query_string에는 date가 들어오며 default 값으로는 오늘 날짜입니다. (ex. 2022-02-11)
         money_day_logs : 이번 달의 각 일별 수입/지출 리스트
         money_detail_logs : 이번 달의 전체 로그 리스트
@@ -69,8 +71,8 @@ class MoneyLogModelViewSet(ModelViewSet):
                     & Q(is_delete=False)
 
         money_day_logs = MoneyDayLog.objects.select_related('user').filter(day_q).order_by('date')
-        money_detail_logs = MoneyDetailLog.objects.select_related('user', 'day_log', 'day_log__user').filter(detail_q)
-
+        money_detail_logs = MoneyDetailLog.objects.select_related('user', 'day_log', 'day_log__user')\
+                        .filter(detail_q).annotate(date=F("day_log__date")).order_by('date', '-updated_at')
         queryset = {
             'money_day_logs' : money_day_logs,
             'money_detail_logs' : money_detail_logs
@@ -85,9 +87,20 @@ class MoneyLogModelViewSet(ModelViewSet):
 
         today = datetime.today().date()
         date = data.get('date', str(today))
-        day_log, _ = MoneyDayLog.objects.get_or_create(user=user, date=date)
 
-        serializer.save(user=user, day_log=day_log)
+        with transaction.atomic():
+            day_log, _ = MoneyDayLog.objects.get_or_create(user=user, date=date)
+            instance = serializer.save(user=user, day_log=day_log)
+
+            money_type = instance.money_type
+            is_expense = True if money_type == '0' else False
+
+            if is_expense:
+                day_log.expense += instance.money
+            else:
+                day_log.income += instance.money
+                
+            day_log.save()
 
     def perform_update(self, serializer):
         """
