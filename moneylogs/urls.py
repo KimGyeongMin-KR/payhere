@@ -3,14 +3,19 @@ from moneylogs.views import MoneyLogModelViewSet
 
 urlpatterns = [
     path('', MoneyLogModelViewSet.as_view({
-                'get' : 'list',
-                'post' : 'create'
-            })
-        ),
+            'get' : 'list',
+            'post' : 'create',
+        })
+    ),
     path('<int:pk>/', MoneyLogModelViewSet.as_view({
-                'get' : 'retrieve',
-                'put' : 'partial_update',
-                'delete' : 'destroy',
-            })
-        ),
+            'get' : 'retrieve',
+            'put' : 'partial_update',
+            'delete' : 'destroy',
+        })
+    ),
+    path('<int:pk>/share/', MoneyLogModelViewSet.as_view({
+            'get' : 'enter_link',
+            'post' : 'make_link',
+        })
+    ),
 ]

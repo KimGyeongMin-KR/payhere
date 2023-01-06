@@ -1,16 +1,21 @@
-from django.shortcuts import render
+# django
+from django.shortcuts import render, get_object_or_404
 from django.db import transaction
 from django.db.models import Q, F
+# project
 from .models import MoneyDayLog, MoneyDetailLog
 from .serializers import MoneyDetailLogSerializer, MoneyDayLogSerializer, MoneyMonthSerializer
-
+from payhere.utils import make_dict_to_url, make_url_to_dict
+# drf
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
-
+from rest_framework.decorators import action
+# utils
 from datetime import datetime
 from dateutil.relativedelta import *
-# Create your views here.
+
+
 
 def get_date_range(date):
     """날짜 데이터(ex. 2022-02-22)를 받아서
@@ -20,7 +25,6 @@ def get_date_range(date):
     date = datetime(*map(int,date.split('-')))
     start_date_time = datetime(date.year, date.month, 1)
     end_date_time = datetime(date.year, date.month, 1) + relativedelta(months=1) + relativedelta(seconds=-1)
-
     return start_date_time, end_date_time
 
 
@@ -40,7 +44,7 @@ class MoneyLogModelViewSet(ModelViewSet):
         if self.action == 'list':
             return MoneyMonthSerializer
         return super().get_serializer_class()
-    
+
     def get_serializer_context(self):
         """
         Extra context provided to the serializer class.
@@ -51,7 +55,6 @@ class MoneyLogModelViewSet(ModelViewSet):
             'view': self,
             'action' : self.action
         }
-
 
     def list(self, request, *args, **kwargs):
         """월별로 데이터를 제공합니다. 데이터를 제공합니다.
@@ -99,7 +102,7 @@ class MoneyLogModelViewSet(ModelViewSet):
                 day_log.expense += instance.money
             else:
                 day_log.income += instance.money
-                
+
             day_log.save()
 
     def perform_update(self, serializer):
@@ -156,7 +159,6 @@ class MoneyLogModelViewSet(ModelViewSet):
             with transaction.atomic():
                 instance.save()
                 instance.day_log.save()
-
             return Response({'message' : message}, status=status.HTTP_200_OK)
         
         if is_expense:
@@ -168,5 +170,22 @@ class MoneyLogModelViewSet(ModelViewSet):
 
         if getattr(instance, '_prefetched_objects_cache', None):
             instance._prefetched_objects_cache = {}
-
         return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def make_link(self, request, pk=None):
+        share_limit = datetime.now() + relativedelta(hours=24)
+        instance = self.get_object()
+        instance.share_limit = share_limit
+        instance.save()
+        return Response(status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['get'])
+    def enter_link(self, request, pk=None):
+        instance = get_object_or_404(MoneyDetailLog, pk=pk, share_limit__gte=datetime.now())
+        serializer = MoneyDetailLogSerializer(instance)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class CategoryModelViewSet(ModelViewSet):
+    pass
