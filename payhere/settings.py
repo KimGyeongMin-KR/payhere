@@ -29,7 +29,9 @@ SECRET_KEY = get_env_variable('SECRET_KEY')
 # Url encrypt & decrypt key 
 CRYPTO_KEY = get_env_variable('CRYPTO_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEV_MODE = True
+
+DEBUG = True if DEV_MODE else False
 
 ALLOWED_HOSTS = []
 
@@ -87,14 +89,24 @@ WSGI_APPLICATION = 'payhere.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/4.1/ref/settings/#databases
-
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+if DEV_MODE:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
     }
-}
-
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.mysql',
+            'NAME': get_env_variable('MYSQL_NAME'),
+            'USER': get_env_variable('MYSQL_USER'),
+            'PASSWORD': get_env_variable('MYSQL_PASSWORD'),
+            'HOST': get_env_variable('MYSQL_HOST'),
+            'PORT': get_env_variable('MYSQL_PORT'),
+        }
+    }
 
 # Password validation
 # https://docs.djangoproject.com/en/4.1/ref/settings/#auth-password-validators
@@ -178,20 +190,20 @@ SIMPLE_JWT = {
     'SLIDING_TOKEN_REFRESH_LIFETIME': timedelta(days=7),
 }
 
-
-LOGGING = {
-    'version': 1,	#logging 버젼
-    'disable_existing_loggers': False, # 원래 있던 로깅들을 그래도 냅둠 # 만약 True면 못쓴다는 거겠죠? ㅎ
-    'handlers': {					# 로깅 메세지에서 일어나는 일을 결정하는 녀석이라고 장고공식문서에 나와있는데, 아직 무슨말인지는 저도 모르겠네요 ㅎㅎ
-        'console': {
-            'level': 'DEBUG',
-            'class': 'logging.StreamHandler',
-        }
-    },
-    'loggers': {				# 로깅을 console에 띄울지 ... 다른데 띄울지 그냥 DEBUG용으로 레벨을 설정할 수 도있고,
-        'django.db.backends': {
-            'handlers': ['console'],
-            'level': 'DEBUG',
+if DEV_MODE:
+    LOGGING = {
+        'version': 1,	#logging 버젼
+        'disable_existing_loggers': False, # 원래 있던 로깅들을 그래도 냅둠 # 만약 True면 못쓴다는 거겠죠? ㅎ
+        'handlers': {					# 로깅 메세지에서 일어나는 일을 결정하는 녀석이라고 장고공식문서에 나와있는데, 아직 무슨말인지는 저도 모르겠네요 ㅎㅎ
+            'console': {
+                'level': 'DEBUG',
+                'class': 'logging.StreamHandler',
+            }
         },
+        'loggers': {				# 로깅을 console에 띄울지 ... 다른데 띄울지 그냥 DEBUG용으로 레벨을 설정할 수 도있고,
+            'django.db.backends': {
+                'handlers': ['console'],
+                'level': 'DEBUG',
+            },
+        }
     }
-}
