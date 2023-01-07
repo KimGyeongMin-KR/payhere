@@ -109,7 +109,7 @@ class MoneyLogModelViewSet(ModelViewSet):
     def update(self, request, *args, **kwargs):
         """
         put request 요청에서 is_delete 값의 포함 여부에 따라
-        soft_delete와 partial_update로 나뉩니다.(soft-delete 우선 순위)
+        soft_delete|복원과 partial_update로 나뉩니다.(soft_delete 우선 순위)
         soft-delete : is_delete값이 True라면 삭제이고 False라면 복원입니다.
                     그에 따라 일별 총 수입/지출의 값을 바꿔줍니다.
         update : 이전 상세 기록의 수입/지출을 참조하여 일별 수입/지출을 되돌린 후 업데이트 된 값으로 대체합니다.
