@@ -20,8 +20,12 @@ urlpatterns = [
     ),
     # share url
     path('<int:pk>/share/', MoneyLogModelViewSet.as_view({
-            'get' : 'enter_link',
+            # 'get' : 'enter_link',
             'post' : 'make_link',
+        })
+    ),
+    path('<str:url>/', MoneyLogModelViewSet.as_view({
+            'get' : 'enter_link',
         })
     ),
     # category url

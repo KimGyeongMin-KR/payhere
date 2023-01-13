@@ -5,7 +5,7 @@ from django.db.models import Q, F
 # project
 from .models import MoneyCategory, MoneyDayLog, MoneyDetailLog
 from .serializers import MoneyCategorySerializer, MoneyDetailLogSerializer, MoneyDayLogSerializer, MoneyMonthSerializer
-from payhere.utils import make_dict_to_url, make_url_to_dict
+from payhere.utils import make_dict_to_url, make_url_to_dict, check_valid_log_url
 # drf
 from rest_framework import permissions, status
 from rest_framework.response import Response
@@ -162,21 +162,28 @@ class MoneyLogModelViewSet(ModelViewSet):
         """
         share_limit = datetime.now() + relativedelta(hours=24)
         url_data = {
-            "log_id" : pk,
+            "pk" : pk,
             "expiration_time" : share_limit.strftime('%y-%m-%d %H:%M:%S')
         }
         url = make_dict_to_url(url_data)
         instance = self.get_object()
         instance.share_limit = share_limit
-        instance.url = url
+        instance.share_url = url
         instance.save()
         return Response(url ,status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['get'])
-    def enter_link(self, request, pk=None):
+    def enter_link(self, request, url=None):
         """공유된 로그의 정보 제공 메서드
+
+        문자열의 url의 유효성을 검사하는 함수를 통과하면(디코딩 가능 여부, 만료 여부)
+        DB에서 해당 유효 기간 필터를 한 번 더 검사하여 가져옵니다.
         """
-        instance = get_object_or_404(MoneyDetailLog, pk=pk, share_limit__gte=datetime.now())
+        is_valid_url = check_valid_log_url(url)
+        if not is_valid_url:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        log_dict = make_url_to_dict(url)
+        instance = get_object_or_404(MoneyDetailLog, pk=log_dict["pk"], share_limit__gte=datetime.now())
         serializer = MoneyDetailLogSerializer(instance)
         return Response(serializer.data, status=status.HTTP_200_OK)
 

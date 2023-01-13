@@ -2,21 +2,29 @@ from django.conf import settings
 import cryptocode
 from ast import literal_eval
 import base64
+from datetime import datetime
 
 
 def make_dict_to_url(data:dict) -> str:
-    # 데이터 > 암호화 > 암호화 데이터 > base화
-    CRYPTO_KEY = getattr(settings, "CRYPTO_KEY", 'scret')    
-    str_encrypt = cryptocode.encrypt(str(data), CRYPTO_KEY)
-    url = base64.urlsafe_b64encode(bytes(str_encrypt, 'UTF-8')).decode("UTF-8").rstrip("=")
+    url = base64.urlsafe_b64encode(bytes(str(data), 'UTF-8')).decode("UTF-8").rstrip("=")
     return url
 
 def make_url_to_dict(url:str) -> dict:
-    # base > 암호화 처리된 데이터  > 복호화 > 데이터
     pad = "=" * (4 - (len(url) % 4))
     url = url + pad
-    str_encrypted = base64.urlsafe_b64decode(bytes(url, 'UTF-8')).decode("UTF-8") 
-    CRYPTO_KEY = getattr(settings, "CRYPTO_KEY", 'scret')
-    str_decrypted_dict = cryptocode.decrypt(str(str_encrypted), CRYPTO_KEY)
-    decrypted_dict = literal_eval(str_decrypted_dict)
-    return decrypted_dict
+    try: # 옳바르지 않은 url입력을 대비
+        str_dict = base64.urlsafe_b64decode(bytes(url, 'UTF-8')).decode("UTF-8") 
+    except: # 특정 Error를 raise하지 않는다
+        return False
+    data_dict = literal_eval(str_dict)
+    return data_dict
+
+def check_valid_log_url(url:str) -> bool:
+    log_dict = make_url_to_dict(url)
+    if not log_dict:
+        return False
+    expiration_time = log_dict.get('expiration_time', '')
+    is_valid_time = datetime.now().strftime('%y-%m-%d %H:%M:%S') <= expiration_time
+    if is_valid_time:
+        return True
+    return False
