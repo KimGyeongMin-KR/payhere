@@ -161,10 +161,16 @@ class MoneyLogModelViewSet(ModelViewSet):
         """금전 로그 공유 url설정 메서드
         """
         share_limit = datetime.now() + relativedelta(hours=24)
+        url_data = {
+            "log_id" : pk,
+            "expiration_time" : share_limit.strftime('%y-%m-%d %H:%M:%S')
+        }
+        url = make_dict_to_url(url_data)
         instance = self.get_object()
         instance.share_limit = share_limit
+        instance.url = url
         instance.save()
-        return Response(status=status.HTTP_200_OK)
+        return Response(url ,status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['get'])
     def enter_link(self, request, pk=None):
