@@ -83,6 +83,24 @@ class MoneyLogTest(MoneyLogSetUp):
         )
         self.assertEqual(response.status_code, 401)
 
+    def test_log_copy_success(self):
+        """로그 생성과 copy 성공 테스트
+        """
+        response = self.client.post(
+            '/moneylogs/',
+            self.setup_moneylog_detail_data,
+            HTTP_AUTHORIZATION=f"Bearer {self.access_token}"
+        )
+        self.assertEqual(response.status_code, 201)
+
+        log_id = response.data["id"]
+
+        response = self.client.post(
+            f'/moneylogs/{log_id}/copy/',
+            HTTP_AUTHORIZATION=f"Bearer {self.access_token}"
+        )
+        self.assertEqual(response.status_code, 201)
+
     def test_same_day_income_and_detail_income(self):
         """일별 수입/지출과 상세 로그들의 수입/지출의 합의 일치 테스트
         """
@@ -121,7 +139,7 @@ class MoneyLogTest(MoneyLogSetUp):
 
     def test_soft_delete_and_restore(self):
         """휴지통으로 이동 후, 복원 후
-        
+
         하루 내역의 수입/지출과
         상세 내역들의 수입/지출의 합의 일치 테스트
         """
@@ -194,7 +212,7 @@ class MoneyLogTest(MoneyLogSetUp):
         self.assertEqual(day_log.expense, expense)
 
     def test_access_another_user(self):
-        """다른 이용자의 접근을 방지 테스트
+        """작성자 외 접근 방지 테스트
         """
         detail_log = MoneyDetailLog.objects.create(user=self.user, day_log=self.day_log, **self.setup_moneylog_detail_data)
         detail_log_id = detail_log.id

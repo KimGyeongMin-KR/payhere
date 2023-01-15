@@ -139,12 +139,12 @@ class MoneyLogModelViewSet(ModelViewSet):
         """
         instance = self.get_object()
         instance.pk = None
-        self.add_income_expense(instance)
+        self.set_money_by_func(instance, "add")
 
         with transaction.atomic():
             instance.save()
             instance.day_log.save()
-        return Response(status=status.HTTP_200_OK)
+        return Response(status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['post'])
     def make_link(self, request, pk=None):
