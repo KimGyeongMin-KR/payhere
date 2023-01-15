@@ -18,6 +18,7 @@ from rest_framework.decorators import action
 from datetime import datetime
 from dateutil.relativedelta import *
 
+
 class MoneyLogModelViewSet(ModelViewSet):
     serializer_class = MoneyDetailLogSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -84,7 +85,7 @@ class MoneyLogModelViewSet(ModelViewSet):
         with transaction.atomic():
             day_log, _ = MoneyDayLog.objects.get_or_create(user=user, date=date)
             instance = serializer.save(user=user, day_log=day_log)
-            self.add_income_expense(instance)
+            self.set_money_by_func(instance, "add")
             instance.day_log.save()
 
     def perform_update(self, serializer):
@@ -92,8 +93,9 @@ class MoneyLogModelViewSet(ModelViewSet):
         되돌렸던 수입/지출의 값에 새로 들어온 금액을 업데이트 해줍니다.
         """
         with transaction.atomic():
+            self.set_money_by_func(instance, "sub") # 변경 전 금액을 제거
             instance = serializer.save()
-            self.add_income_expense(instance)
+            self.set_money_by_func(instance, "add") # 변경 후 금액 추가
             instance.day_log.save()
     
     def update(self, request, *args, **kwargs):
@@ -114,10 +116,10 @@ class MoneyLogModelViewSet(ModelViewSet):
         if is_delete != '' and instance.is_delete != is_delete:
             if is_delete:
                 data = '휴지통 이동'
-                self.sub_income_expense(instance)
+                self.set_money_by_func(instance, "sub")
             else:
                 data = MoneyDetailLogSerializer(instance).data
-                self.add_income_expense(instance)
+                self.set_money_by_func(instance, "add")
             instance.is_delete = is_delete
 
             with transaction.atomic():
@@ -125,8 +127,6 @@ class MoneyLogModelViewSet(ModelViewSet):
                 instance.day_log.save()
             return Response(data, status=status.HTTP_200_OK)
         
-
-        self.sub_income_expense(instance) # 추가하기 위한 복원
         self.perform_update(serializer)
 
         if getattr(instance, '_prefetched_objects_cache', None):
@@ -177,23 +177,26 @@ class MoneyLogModelViewSet(ModelViewSet):
         serializer = MoneyDetailLogSerializer(instance)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
-    def add_income_expense(self, instance):
+    def set_money_by_func(self, instance:object, func:str):
+        """MoneyDayLog 객체의 수입/지출내역을 변경합니다.
+        
+        instance : MoneyDetailLog 객체
+        func : 메서드 내에 func_dict의 key값 중 하나를 받습니다. ex) "add"
+        """
+        func_dict = {
+            "add" : lambda x,y : x+y,
+            "sub" : lambda x,y : x-y,
+        }
+        money_type_dict = {
+            "0" : "expense",
+            "1" : "income"
+        }
         money_type = instance.money_type
-        is_expense = True if money_type == '0' else False
-
-        if is_expense:
-            instance.day_log.expense += instance.money
-        else:
-            instance.day_log.income += instance.money
-
-    def sub_income_expense(self, instance):
-        money_type = instance.money_type
-        is_expense = True if money_type == '0' else False
-
-        if is_expense:
-            instance.day_log.expense -= instance.money
-        else:
-            instance.day_log.income -= instance.money
+        money_type_value = money_type_dict[money_type]
+        op_func = func_dict[func]
+        before_money = getattr(instance.day_log, money_type_value)
+        after_money = op_func(before_money, instance.money)
+        setattr(instance.day_log, money_type_value, after_money)
 
 
 class CategoryModelViewSet(ModelViewSet):
