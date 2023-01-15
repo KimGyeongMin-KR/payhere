@@ -5,7 +5,10 @@ from django.db.models import Q, F
 # project
 from .models import MoneyCategory, MoneyDayLog, MoneyDetailLog
 from .serializers import MoneyCategorySerializer, MoneyDetailLogSerializer, MoneyDayLogSerializer, MoneyMonthSerializer
-from payhere.utils import make_dict_to_url, make_url_to_dict, check_valid_log_url
+from payhere.utils import (
+    make_dict_to_url, make_url_to_dict, check_valid_log_url,
+    get_date_range, get_date_or_default    
+)
 # drf
 from rest_framework import permissions, status
 from rest_framework.response import Response
@@ -14,19 +17,6 @@ from rest_framework.decorators import action
 # utils
 from datetime import datetime
 from dateutil.relativedelta import *
-
-
-
-def get_date_range(date):
-    """날짜 데이터(ex. 2022-02-22)를 받아서
-    1일 00시 00분 과 말일 23:59의 datetime 객체 튜플을 반환합니다.
-    return start_time, end_time
-    """
-    date = datetime(*map(int,date.split('-')))
-    start_date_time = datetime(date.year, date.month, 1)
-    end_date_time = datetime(date.year, date.month, 1) + relativedelta(months=1) + relativedelta(seconds=-1)
-    return start_date_time, end_date_time
-
 
 class MoneyLogModelViewSet(ModelViewSet):
     serializer_class = MoneyDetailLogSerializer
@@ -64,8 +54,8 @@ class MoneyLogModelViewSet(ModelViewSet):
         money_detail_logs : 이번 달의 전체 로그 리스트
         """
         user = request.user
-        today = datetime.today().date()
-        date = request.query_params.get('date', str(today))
+        date = request.query_params.get('date', '')
+        date = get_date_or_default(date)
 
         start_date_time, end_date_time = get_date_range(date)
 
@@ -88,8 +78,8 @@ class MoneyLogModelViewSet(ModelViewSet):
         user = self.request.user
         data = self.request.data
 
-        today = datetime.today().date()
-        date = data.get('date', str(today))
+        date = data.get('date', '')
+        date = get_date_or_default(date)
 
         with transaction.atomic():
             day_log, _ = MoneyDayLog.objects.get_or_create(user=user, date=date)
@@ -110,7 +100,7 @@ class MoneyLogModelViewSet(ModelViewSet):
         """
         put request 요청에서 is_delete 값의 포함 여부에 따라
         soft_delete|복원과 partial_update로 나뉩니다.(soft_delete 우선 순위)
-        soft-delete : is_delete값이 True라면 삭제이고 False라면 복원입니다.
+        soft_delete : is_delete값이 True라면 삭제이고 False라면 복원입니다.
                     그에 따라 일별 총 수입/지출의 값을 바꿔줍니다.
         update : 이전 상세 기록의 수입/지출을 참조하여 일별 수입/지출을 되돌린 후 업데이트 된 값으로 대체합니다.
                     이후 상세 기록의 값을 업데이트 해줍니다.
