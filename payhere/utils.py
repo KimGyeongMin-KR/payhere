@@ -1,5 +1,4 @@
 from django.conf import settings
-import cryptocode
 from ast import literal_eval
 import base64
 from datetime import datetime
