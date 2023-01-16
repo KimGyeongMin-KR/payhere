@@ -60,8 +60,8 @@ class MoneyLogModelViewSet(ModelViewSet):
 
         start_date_time, end_date_time = get_date_range(date)
 
-        day_q = Q(date__gte=start_date_time.date()) & Q(date__lte=end_date_time.date()) & Q(user_id=user.id)
-        detail_q = Q(day_log__date__gte=start_date_time.date()) & Q(day_log__date__lte=end_date_time.date()) & Q(user_id=user.id) \
+        day_q =  Q(user_id=user.id) & Q(date__gte=start_date_time.date()) & Q(date__lte=end_date_time.date())
+        detail_q =  Q(user_id=user.id) & Q(day_log__date__gte=start_date_time.date()) & Q(day_log__date__lte=end_date_time.date()) \
                     & Q(is_delete=False)
 
         money_day_logs = MoneyDayLog.objects.select_related('user').filter(day_q).order_by('date')
@@ -88,15 +88,26 @@ class MoneyLogModelViewSet(ModelViewSet):
             self.set_money_by_func(instance, "add")
             instance.day_log.save()
 
-    def perform_update(self, serializer):
+    def perform_update(self, serializer, instance):
         """
-        되돌렸던 수입/지출의 값에 새로 들어온 금액을 업데이트 해줍니다.
+        변경 전 수입/지출의 값을 되돌리고,
+        변경 후 수입/지춣의 값을 합산하는 과정입니다.
+        
+        날짜도 변경한다면 perform_create와 같은 로직을 이용합니다.
         """
         with transaction.atomic():
             self.set_money_by_func(instance, "sub") # 변경 전 금액을 제거
-            instance = serializer.save()
-            self.set_money_by_func(instance, "add") # 변경 후 금액 추가
             instance.day_log.save()
+
+            data = self.request.data
+            date = data.get('date', '')
+
+            if date:
+                self.perform_create(serializer)
+            else:
+                instance = serializer.save()
+                self.set_money_by_func(instance, "add") # 변경 후 금액 추가
+                instance.day_log.save()
     
     def update(self, request, *args, **kwargs):
         """
@@ -126,8 +137,8 @@ class MoneyLogModelViewSet(ModelViewSet):
                 instance.save()
                 instance.day_log.save()
             return Response(data, status=status.HTTP_200_OK)
-        
-        self.perform_update(serializer)
+
+        self.perform_update(serializer, instance)
 
         if getattr(instance, '_prefetched_objects_cache', None):
             instance._prefetched_objects_cache = {}
