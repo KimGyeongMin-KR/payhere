@@ -211,6 +211,37 @@ class MoneyLogTest(MoneyLogSetUp):
         self.assertEqual(day_log.income, income)
         self.assertEqual(day_log.expense, expense)
 
+    def test_log_date_update_success(self):
+        """로그 생성과 날짜 및 내용 수정 테스트
+        """
+        response = self.client.post(
+            '/moneylogs/',
+            self.setup_moneylog_detail_data,
+            HTTP_AUTHORIZATION=f"Bearer {self.access_token}"
+        )
+        self.assertEqual(response.status_code, 201)
+
+        log_id = response.data["id"]
+        day_log_id = response.data["day_log"]
+        day_log = MoneyDayLog.objects.get(pk=day_log_id)
+
+        data = {
+            "date" : "2000-01-01",
+            "money_type" : "1",
+            "money" : 1000
+        }
+        response = self.client.put(
+            f'/moneylogs/{log_id}/',
+            data,
+            HTTP_AUTHORIZATION=f"Bearer {self.access_token}"
+        )
+        self.assertEqual(response.data["date"], data["date"])
+        self.assertNotEqual(response.data["day_log"], day_log.id)
+        
+        day_log = MoneyDayLog.objects.get(pk=day_log_id)
+        self.assertEqual(day_log.expense, 0)
+        self.assertEqual(day_log.income, 0)
+
     def test_access_another_user(self):
         """작성자 외 접근 방지 테스트
         """
