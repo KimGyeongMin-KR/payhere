@@ -5,7 +5,10 @@ from django.db.models import Q, F
 # project
 from .models import MoneyCategory, MoneyDayLog, MoneyDetailLog
 from .serializers import MoneyCategorySerializer, MoneyDetailLogSerializer, MoneyDayLogSerializer, MoneyMonthSerializer
-from payhere.utils import make_dict_to_url, make_url_to_dict
+from payhere.utils import (
+    make_dict_to_url, make_url_to_dict, check_valid_log_url,
+    get_date_range, get_date_or_default    
+)
 # drf
 from rest_framework import permissions, status
 from rest_framework.response import Response
@@ -14,18 +17,6 @@ from rest_framework.decorators import action
 # utils
 from datetime import datetime
 from dateutil.relativedelta import *
-
-
-
-def get_date_range(date):
-    """날짜 데이터(ex. 2022-02-22)를 받아서
-    1일 00시 00분 과 말일 23:59의 datetime 객체 튜플을 반환합니다.
-    return start_time, end_time
-    """
-    date = datetime(*map(int,date.split('-')))
-    start_date_time = datetime(date.year, date.month, 1)
-    end_date_time = datetime(date.year, date.month, 1) + relativedelta(months=1) + relativedelta(seconds=-1)
-    return start_date_time, end_date_time
 
 
 class MoneyLogModelViewSet(ModelViewSet):
@@ -64,13 +55,13 @@ class MoneyLogModelViewSet(ModelViewSet):
         money_detail_logs : 이번 달의 전체 로그 리스트
         """
         user = request.user
-        today = datetime.today().date()
-        date = request.query_params.get('date', str(today))
+        date = request.query_params.get('date', '')
+        date = get_date_or_default(date)
 
         start_date_time, end_date_time = get_date_range(date)
 
-        day_q = Q(date__gte=start_date_time.date()) & Q(date__lte=end_date_time.date()) & Q(user_id=user.id)
-        detail_q = Q(day_log__date__gte=start_date_time.date()) & Q(day_log__date__lte=end_date_time.date()) & Q(user_id=user.id) \
+        day_q =  Q(user_id=user.id) & Q(date__gte=start_date_time.date()) & Q(date__lte=end_date_time.date())
+        detail_q =  Q(user_id=user.id) & Q(day_log__date__gte=start_date_time.date()) & Q(day_log__date__lte=end_date_time.date()) \
                     & Q(is_delete=False)
 
         money_day_logs = MoneyDayLog.objects.select_related('user').filter(day_q).order_by('date')
@@ -88,29 +79,41 @@ class MoneyLogModelViewSet(ModelViewSet):
         user = self.request.user
         data = self.request.data
 
-        today = datetime.today().date()
-        date = data.get('date', str(today))
+        date = data.get('date', '')
+        date = get_date_or_default(date)
 
         with transaction.atomic():
             day_log, _ = MoneyDayLog.objects.get_or_create(user=user, date=date)
             instance = serializer.save(user=user, day_log=day_log)
-            self.add_income_expense(instance)
+            self.set_money_by_func(instance, "add")
             instance.day_log.save()
 
-    def perform_update(self, serializer):
+    def perform_update(self, serializer, instance):
         """
-        되돌렸던 수입/지출의 값에 새로 들어온 금액을 업데이트 해줍니다.
+        변경 전 수입/지출의 값을 되돌리고,
+        변경 후 수입/지춣의 값을 합산하는 과정입니다.
+        
+        날짜도 변경한다면 perform_create와 같은 로직을 이용합니다.
         """
         with transaction.atomic():
-            instance = serializer.save()
-            self.add_income_expense(instance)
+            self.set_money_by_func(instance, "sub") # 변경 전 금액을 제거
             instance.day_log.save()
+
+            data = self.request.data
+            date = data.get('date', '')
+
+            if date:
+                self.perform_create(serializer)
+            else:
+                instance = serializer.save()
+                self.set_money_by_func(instance, "add") # 변경 후 금액 추가
+                instance.day_log.save()
     
     def update(self, request, *args, **kwargs):
         """
         put request 요청에서 is_delete 값의 포함 여부에 따라
         soft_delete|복원과 partial_update로 나뉩니다.(soft_delete 우선 순위)
-        soft-delete : is_delete값이 True라면 삭제이고 False라면 복원입니다.
+        soft_delete : is_delete값이 True라면 삭제이고 False라면 복원입니다.
                     그에 따라 일별 총 수입/지출의 값을 바꿔줍니다.
         update : 이전 상세 기록의 수입/지출을 참조하여 일별 수입/지출을 되돌린 후 업데이트 된 값으로 대체합니다.
                     이후 상세 기록의 값을 업데이트 해줍니다.
@@ -124,20 +127,18 @@ class MoneyLogModelViewSet(ModelViewSet):
         if is_delete != '' and instance.is_delete != is_delete:
             if is_delete:
                 data = '휴지통 이동'
-                self.sub_income_expense(instance)
+                self.set_money_by_func(instance, "sub")
             else:
                 data = MoneyDetailLogSerializer(instance).data
-                self.add_income_expense(instance)
+                self.set_money_by_func(instance, "add")
             instance.is_delete = is_delete
 
             with transaction.atomic():
                 instance.save()
                 instance.day_log.save()
             return Response(data, status=status.HTTP_200_OK)
-        
 
-        self.sub_income_expense(instance) # 추가하기 위한 복원
-        self.perform_update(serializer)
+        self.perform_update(serializer, instance)
 
         if getattr(instance, '_prefetched_objects_cache', None):
             instance._prefetched_objects_cache = {}
@@ -149,48 +150,64 @@ class MoneyLogModelViewSet(ModelViewSet):
         """
         instance = self.get_object()
         instance.pk = None
-        self.add_income_expense(instance)
+        self.set_money_by_func(instance, "add")
 
         with transaction.atomic():
             instance.save()
             instance.day_log.save()
-        return Response(status=status.HTTP_200_OK)
+        return Response(status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['post'])
     def make_link(self, request, pk=None):
         """금전 로그 공유 url설정 메서드
         """
         share_limit = datetime.now() + relativedelta(hours=24)
+        url_data = {
+            "pk" : pk,
+            "expiration_time" : share_limit.strftime('%y-%m-%d %H:%M:%S')
+        }
+        url = make_dict_to_url(url_data)
         instance = self.get_object()
         instance.share_limit = share_limit
+        instance.share_url = url
         instance.save()
-        return Response(status=status.HTTP_200_OK)
+        return Response(url ,status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['get'])
-    def enter_link(self, request, pk=None):
+    def enter_link(self, request, url=None):
         """공유된 로그의 정보 제공 메서드
+
+        문자열의 url의 유효성을 검사하는 함수를 통과하면(디코딩 가능 여부, 만료 여부)
+        DB에서 해당 유효 기간 필터를 한 번 더 검사하여 가져옵니다.
         """
-        instance = get_object_or_404(MoneyDetailLog, pk=pk, share_limit__gte=datetime.now())
+        is_valid_url = check_valid_log_url(url)
+        if not is_valid_url:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        log_dict = make_url_to_dict(url)
+        instance = get_object_or_404(MoneyDetailLog, pk=log_dict["pk"], share_limit__gte=datetime.now())
         serializer = MoneyDetailLogSerializer(instance)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
-    def add_income_expense(self, instance):
+    def set_money_by_func(self, instance:object, func:str):
+        """MoneyDayLog 객체의 수입/지출내역을 변경합니다.
+        
+        instance : MoneyDetailLog 객체
+        func : 메서드 내에 func_dict의 key값 중 하나를 받습니다. ex) "add"
+        """
+        func_dict = {
+            "add" : lambda x,y : x+y,
+            "sub" : lambda x,y : x-y,
+        }
+        money_type_dict = {
+            "0" : "expense",
+            "1" : "income"
+        }
         money_type = instance.money_type
-        is_expense = True if money_type == '0' else False
-
-        if is_expense:
-            instance.day_log.expense += instance.money
-        else:
-            instance.day_log.income += instance.money
-
-    def sub_income_expense(self, instance):
-        money_type = instance.money_type
-        is_expense = True if money_type == '0' else False
-
-        if is_expense:
-            instance.day_log.expense -= instance.money
-        else:
-            instance.day_log.income -= instance.money
+        money_type_value = money_type_dict[money_type]
+        op_func = func_dict[func]
+        before_money = getattr(instance.day_log, money_type_value)
+        after_money = op_func(before_money, instance.money)
+        setattr(instance.day_log, money_type_value, after_money)
 
 
 class CategoryModelViewSet(ModelViewSet):

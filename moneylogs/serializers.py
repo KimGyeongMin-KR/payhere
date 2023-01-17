@@ -13,19 +13,18 @@ class MoneyDayLogSerializer(serializers.ModelSerializer):
 
 class MoneyDetailLogSerializer(serializers.ModelSerializer):
 
-    # description = serializers.SerializerMethodField()
     date = serializers.SerializerMethodField()
 
-    # def get_description(self, obj):
-    #     action = self.context["action"]
-    #     if action == 'list':
-    #         return obj.short_description
-    #     elif action in ['create', 'partial_update']:
-    #         return self.context["request"].data.get('description', '')
-    #     return obj.description
-    
     def get_date(self, obj):
         return obj.day_log.date
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        description = self.fields.get("description", '')
+        action = self.context.get("action", '')
+
+        if description and action == "list":
+            self.fields['description'] = serializers.CharField(source='short_description')
 
     class Meta:
         model = MoneyDetailLog
@@ -35,9 +34,12 @@ class MoneyDetailLogSerializer(serializers.ModelSerializer):
 
 class MoneyMonthSerializer(serializers.Serializer):
     money_day_logs = MoneyDayLogSerializer(many=True)
-    money_detail_logs = MoneyDetailLogSerializer(many=True)
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["money_detail_logs"] = MoneyDetailLogSerializer(many=True, context=self.context)
 
+        
 class MoneyCategorySerializer(serializers.ModelSerializer):
 
     class Meta:

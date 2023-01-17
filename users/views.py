@@ -21,4 +21,5 @@ class UserViewSet(ViewSet):
         """
         serializer = SignUpSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        serializer.save()
         return Response(status=status.HTTP_201_CREATED)

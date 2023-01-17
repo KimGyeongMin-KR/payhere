@@ -3,7 +3,10 @@ from rest_framework.test import APITestCase
 
 from users.models import User
 from moneylogs.models import MoneyDetailLog, MoneyDayLog, MoneyCategory
-# Create your tests here.
+from payhere.utils import make_dict_to_url
+
+from datetime import datetime
+from dateutil.relativedelta import *
 
 class MoneyLogSetUp(APITestCase):
 
@@ -80,6 +83,24 @@ class MoneyLogTest(MoneyLogSetUp):
         )
         self.assertEqual(response.status_code, 401)
 
+    def test_log_copy_success(self):
+        """로그 생성과 copy 성공 테스트
+        """
+        response = self.client.post(
+            '/moneylogs/',
+            self.setup_moneylog_detail_data,
+            HTTP_AUTHORIZATION=f"Bearer {self.access_token}"
+        )
+        self.assertEqual(response.status_code, 201)
+
+        log_id = response.data["id"]
+
+        response = self.client.post(
+            f'/moneylogs/{log_id}/copy/',
+            HTTP_AUTHORIZATION=f"Bearer {self.access_token}"
+        )
+        self.assertEqual(response.status_code, 201)
+
     def test_same_day_income_and_detail_income(self):
         """일별 수입/지출과 상세 로그들의 수입/지출의 합의 일치 테스트
         """
@@ -118,6 +139,7 @@ class MoneyLogTest(MoneyLogSetUp):
 
     def test_soft_delete_and_restore(self):
         """휴지통으로 이동 후, 복원 후
+
         하루 내역의 수입/지출과
         상세 내역들의 수입/지출의 합의 일치 테스트
         """
@@ -189,8 +211,39 @@ class MoneyLogTest(MoneyLogSetUp):
         self.assertEqual(day_log.income, income)
         self.assertEqual(day_log.expense, expense)
 
+    def test_log_date_update_success(self):
+        """로그 생성과 날짜 및 내용 수정 테스트
+        """
+        response = self.client.post(
+            '/moneylogs/',
+            self.setup_moneylog_detail_data,
+            HTTP_AUTHORIZATION=f"Bearer {self.access_token}"
+        )
+        self.assertEqual(response.status_code, 201)
+
+        log_id = response.data["id"]
+        day_log_id = response.data["day_log"]
+        day_log = MoneyDayLog.objects.get(pk=day_log_id)
+
+        data = {
+            "date" : "2000-01-01",
+            "money_type" : "1",
+            "money" : 1000
+        }
+        response = self.client.put(
+            f'/moneylogs/{log_id}/',
+            data,
+            HTTP_AUTHORIZATION=f"Bearer {self.access_token}"
+        )
+        self.assertEqual(response.data["date"], data["date"])
+        self.assertNotEqual(response.data["day_log"], day_log.id)
+        
+        day_log = MoneyDayLog.objects.get(pk=day_log_id)
+        self.assertEqual(day_log.expense, 0)
+        self.assertEqual(day_log.income, 0)
+
     def test_access_another_user(self):
-        """다른 이용자의 접근을 방지 테스트
+        """작성자 외 접근 방지 테스트
         """
         detail_log = MoneyDetailLog.objects.create(user=self.user, day_log=self.day_log, **self.setup_moneylog_detail_data)
         detail_log_id = detail_log.id
@@ -201,8 +254,15 @@ class MoneyLogTest(MoneyLogSetUp):
         )
         self.assertEqual(response.status_code, 404)
 
-    def test_success_share_link_and_success_access_another_user(self):
-        """사용자의 공유 설정 후 접근 성공 테스트
+    def test_url공유_작성자와비작성자_url접속_로그인유저와비로그인유저(self):
+        """
+        url 공유
+        - 작성자 : 200 반환
+        - 비작성자 : 404 반환
+
+        url 접속
+        - 로그인 유저 : 200 반환
+        - 비로그인 유저 : 401 반환
         """
         detail_log = MoneyDetailLog.objects.create(user=self.user, day_log=self.day_log, **self.setup_moneylog_detail_data)
         detail_log_id = detail_log.id
@@ -210,24 +270,75 @@ class MoneyLogTest(MoneyLogSetUp):
             f'/moneylogs/{detail_log_id}/share/',
             HTTP_AUTHORIZATION=f"Bearer {self.access_token}"
         )
+        share_url = response.data
         self.assertEqual(response.status_code, 200)
 
         another_access_token = self.client.post(reverse('signin'), self.another_user_data).data['access']
-        response = self.client.get(
+
+        response = self.client.post(
             f'/moneylogs/{detail_log_id}/share/',
+            HTTP_AUTHORIZATION=f"Bearer {self.another_access_token}"
+        )
+        self.assertEqual(response.status_code, 404)
+
+        response = self.client.get(
+            f'/moneylogs/{share_url}/',
             HTTP_AUTHORIZATION=f"Bearer {another_access_token}"
         )
         self.assertEqual(response.status_code, 200)
 
+        response = self.client.get(
+            f'/moneylogs/{share_url}/'
+        )
+        self.assertEqual(response.status_code, 401)
 
-    def test_success_share_link_and_fail_access_anoymous_user(self):
-        """공유 설정하지 않은 로그 접근 시도 테스트
+    def test_url공유_만료기간이지나면_404_반환합니다(self):
+        """공유 만료 기간이 지난 경우의 요청 테스트
+        """
+        detail_log = MoneyDetailLog.objects.create(user=self.user, day_log=self.day_log, **self.setup_moneylog_detail_data)
+        detail_log_id = detail_log.id
+        response = self.client.post(
+            f'/moneylogs/{detail_log_id}/share/',
+            HTTP_AUTHORIZATION=f"Bearer {self.access_token}"
+        )
+        share_url = response.data
+
+        detail_log.share_limit = datetime.now() + relativedelta(hours=-24)
+        detail_log.save()
+
+        response = self.client.get(
+            f'/moneylogs/{share_url}/',
+            HTTP_AUTHORIZATION=f"Bearer {self.access_token}"
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+
+
+    def test_url조작후접근은_404_반환합니다(self):
+        """공유 설정하지 않은 로그의 url 정보를 조작 후 접근 시도 테스트
         """
         detail_log = MoneyDetailLog.objects.create(user=self.user, day_log=self.day_log, **self.setup_moneylog_detail_data)
         detail_log_id = detail_log.id
         another_access_token = self.client.post(reverse('signin'), self.another_user_data).data['access']
+        data = {
+            "pk" : detail_log_id,
+            "expiration_time" : str(datetime.now() + relativedelta(hours=24))
+        }
+        url = make_dict_to_url(data)
         response = self.client.get(
-            f'/moneylogs/{detail_log_id}/share/',
+            f'/moneylogs/{url}/',
             HTTP_AUTHORIZATION=f"Bearer {another_access_token}"
         )
         self.assertEqual(response.status_code, 404)
+
+
+    # 날짜가 제대로 들어오지 않았을 경우
+    def test_옳바르지않은날짜의리스트요청은_오늘날짜로변경하여_요청합니다(self):
+        dates = ["2022-24-00", "문자", "2022"]
+        for date in dates:
+            response = self.client.get(
+                f'/moneylogs/?date={date}',
+                HTTP_AUTHORIZATION=f"Bearer {self.access_token}"
+            )
+            self.assertEqual(response.status_code, 200)
