@@ -89,7 +89,7 @@ WSGI_APPLICATION = 'payhere.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/4.1/ref/settings/#databases
-if not DEV_MODE:
+if DEV_MODE:
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',

@@ -14,6 +14,11 @@ jobs:
       SECRET_KEY: "secret"
       JWT_SECRET_KEY: "secret_jwt"
       CRYPTO_KEY: "secret_crypto"
+      MYSQL_NAME: "test"
+      MYSQL_USER: "root"
+      MYSQL_PASSWORD: "root"
+      MYSQL_HOST: "localhost"
+      MYSQL_PORT: "3306"
     strategy:
       max-parallel: 4
       matrix:
